@@ -1,0 +1,686 @@
+openapi: 3.0.3
+info:
+  title: Acme Payments API
+  version: 1.0.0
+  description: >-
+    The payments API of Acme Payments, a fictional company. The host uses the
+    reserved .example domain, so it never resolves. Request and response bodies
+    are JSON. Amounts are integers in the smallest currency unit.
+  license:
+    name: CC0-1.0
+    url: https://creativecommons.org/publicdomain/zero/1.0/
+servers:
+  - url: https://api.acme-payments.example
+    description: Production
+security:
+  - bearerAuth: []
+tags:
+  - name: Charges
+  - name: Refunds
+  - name: Customers
+  - name: Cards
+  - name: Payouts
+  - name: Webhook endpoints
+paths:
+  /v1/charges:
+    get:
+      operationId: listCharges
+      tags: [Charges]
+      summary: List charges
+      description: Charges, newest first.
+      parameters:
+        - name: customer
+          in: query
+          description: Only charges for this customer.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/StartingAfter'
+      responses:
+        '200':
+          description: A page of charges.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChargeList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createCharge
+      tags: [Charges]
+      summary: Create a charge
+      description: >-
+        Charges a card. Give the card as `payment_method`, or as `source` (a card
+        id or a card token). With neither, the customer's default payment method
+        is charged.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChargeRequest'
+      responses:
+        '200':
+          description: The charge.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Charge'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/charges/{id}:
+    get:
+      operationId: retrieveCharge
+      tags: [Charges]
+      summary: Retrieve a charge
+      parameters:
+        - $ref: '#/components/parameters/ChargeId'
+      responses:
+        '200':
+          description: The charge.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Charge'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/charges/{id}/capture:
+    post:
+      operationId: captureCharge
+      tags: [Charges]
+      summary: Capture a charge
+      description: Captures a charge created with `capture` set to false.
+      parameters:
+        - $ref: '#/components/parameters/ChargeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: integer
+                  minimum: 1
+                  description: Capture less than the authorized amount.
+      responses:
+        '200':
+          description: The captured charge.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Charge'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/refunds:
+    post:
+      operationId: createRefund
+      tags: [Refunds]
+      summary: Refund a charge
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRefundRequest'
+      responses:
+        '200':
+          description: The refund.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/customers:
+    post:
+      operationId: createCustomer
+      tags: [Customers]
+      summary: Create a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '200':
+          description: The customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/customers/{id}:
+    get:
+      operationId: retrieveCustomer
+      tags: [Customers]
+      summary: Retrieve a customer
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: The customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/customers/{id}/cards:
+    get:
+      operationId: listCustomerCards
+      tags: [Cards]
+      summary: List a customer's cards
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/StartingAfter'
+      responses:
+        '200':
+          description: A page of cards.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createCustomerCard
+      tags: [Cards]
+      summary: Add a card to a customer
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: A card token from Acme's card form.
+      responses:
+        '200':
+          description: The card.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/payouts:
+    post:
+      operationId: createPayout
+      tags: [Payouts]
+      summary: Create a payout
+      description: Sends funds from the Acme balance to a bank account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePayoutRequest'
+      responses:
+        '200':
+          description: The payout.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/payouts/{id}:
+    get:
+      operationId: retrievePayout
+      tags: [Payouts]
+      summary: Retrieve a payout
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: po_1Pq7cJ2eZvKYlo2C
+      responses:
+        '200':
+          description: The payout.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/webhook_endpoints:
+    get:
+      operationId: listWebhookEndpoints
+      tags: [Webhook endpoints]
+      summary: List webhook endpoints
+      responses:
+        '200':
+          description: The endpoints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Add a webhook endpoint
+      description: The signing secret is returned in this response only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, enabled_events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                enabled_events:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    example: charge.succeeded
+      responses:
+        '200':
+          description: The endpoint, with its signing secret.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/WebhookEndpoint'
+                  - type: object
+                    required: [secret]
+                    properties:
+                      secret:
+                        type: string
+                        example: whsec_placeholder
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/webhook_endpoints/{id}:
+    delete:
+      operationId: deleteWebhookEndpoint
+      tags: [Webhook endpoints]
+      summary: Delete a webhook endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: we_1Pq7cJ2eZvKYlo2C
+      responses:
+        '200':
+          description: The deleted endpoint.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, deleted]
+                properties:
+                  id:
+                    type: string
+                  deleted:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 'A secret key, sent as `Authorization: Bearer <key>`.'
+  parameters:
+    ChargeId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: ch_1Pq7cJ2eZvKYlo2C
+    CustomerId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: cus_Qh3kTq8sZ1
+    Limit:
+      name: limit
+      in: query
+      description: How many objects to return, 1 to 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
+    StartingAfter:
+      name: starting_after
+      in: query
+      description: The id of the last object on the previous page.
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        A key you choose, up to 255 characters. A retry with the same key
+        returns the first result instead of acting twice.
+      schema:
+        type: string
+        maxLength: 255
+  responses:
+    Error:
+      description: An error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type:
+              type: string
+              enum: [invalid_request_error, authentication_error, card_error, rate_limit_error, api_error]
+            code:
+              type: string
+              nullable: true
+            message:
+              type: string
+            param:
+              type: string
+              nullable: true
+    Metadata:
+      type: object
+      description: Up to 20 string keys and values of your own.
+      additionalProperties:
+        type: string
+    CreateChargeRequest:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          minimum: 50
+        currency:
+          type: string
+          example: usd
+        customer:
+          type: string
+          description: The customer to charge.
+        payment_method:
+          type: string
+          description: The id of a card saved to the customer (`card_...`).
+        source:
+          type: string
+          description: A card id (`card_...`) or a single-use card token (`tok_...`).
+        capture:
+          type: boolean
+          default: true
+          description: False authorizes now and captures later.
+        description:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    Charge:
+      type: object
+      required: [id, object, amount, amount_refunded, currency, status, captured, failure_code, failure_message, created]
+      properties:
+        id:
+          type: string
+          example: ch_1Pq7cJ2eZvKYlo2C
+        object:
+          type: string
+          enum: [charge]
+        amount:
+          type: integer
+        amount_refunded:
+          type: integer
+        currency:
+          type: string
+        customer:
+          type: string
+          nullable: true
+        payment_method:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        captured:
+          type: boolean
+        failure_code:
+          type: string
+          nullable: true
+        failure_message:
+          type: string
+          nullable: true
+          description: Why the charge failed, in a sentence you can show the customer.
+        receipt_url:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        created:
+          type: integer
+          description: Unix seconds.
+    ChargeList:
+      type: object
+      required: [object, data, has_more]
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Charge'
+        has_more:
+          type: boolean
+    CreateRefundRequest:
+      type: object
+      required: [charge]
+      properties:
+        charge:
+          type: string
+        amount:
+          type: integer
+          minimum: 1
+          description: Defaults to the whole unrefunded amount.
+        reason:
+          type: string
+          enum: [duplicate, fraudulent, requested_by_customer]
+    Refund:
+      type: object
+      required: [id, object, amount, charge, status, created]
+      properties:
+        id:
+          type: string
+          example: re_1Pq7cJ2eZvKYlo2C
+        object:
+          type: string
+          enum: [refund]
+        amount:
+          type: integer
+        charge:
+          type: string
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        reason:
+          type: string
+          nullable: true
+        created:
+          type: integer
+    CreateCustomerRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    Customer:
+      type: object
+      required: [id, object, created]
+      properties:
+        id:
+          type: string
+          example: cus_Qh3kTq8sZ1
+        object:
+          type: string
+          enum: [customer]
+        email:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        default_payment_method:
+          type: string
+          nullable: true
+          description: The card charged when a charge names none.
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        created:
+          type: integer
+    Card:
+      type: object
+      required: [id, object, brand, last4, exp_month, exp_year, customer]
+      properties:
+        id:
+          type: string
+          example: card_1Pq7cJ2eZvKYlo2C
+        object:
+          type: string
+          enum: [card]
+        brand:
+          type: string
+          enum: [visa, mastercard, amex, discover, unknown]
+        last4:
+          type: string
+        exp_month:
+          type: integer
+        exp_year:
+          type: integer
+        customer:
+          type: string
+    CardList:
+      type: object
+      required: [object, data, has_more]
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+        has_more:
+          type: boolean
+    CreatePayoutRequest:
+      type: object
+      required: [amount, currency, destination]
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+        destination:
+          type: string
+          description: A bank account id (`ba_...`).
+        statement_descriptor:
+          type: string
+          maxLength: 22
+    Payout:
+      type: object
+      required: [id, object, amount, currency, destination, status, failure_code, failure_message, created]
+      properties:
+        id:
+          type: string
+          example: po_1Pq7cJ2eZvKYlo2C
+        object:
+          type: string
+          enum: [payout]
+        amount:
+          type: integer
+        currency:
+          type: string
+        destination:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_transit, paid, failed, canceled]
+        failure_code:
+          type: string
+          nullable: true
+        failure_message:
+          type: string
+          nullable: true
+          description: Why the payout failed.
+        arrival_date:
+          type: integer
+          nullable: true
+        created:
+          type: integer
+    WebhookEndpoint:
+      type: object
+      required: [id, object, url, enabled_events, status, created]
+      properties:
+        id:
+          type: string
+          example: we_1Pq7cJ2eZvKYlo2C
+        object:
+          type: string
+          enum: [webhook_endpoint]
+        url:
+          type: string
+        enabled_events:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [enabled, disabled]
+        created:
+          type: integer
+    WebhookEndpointList:
+      type: object
+      required: [object, data, has_more]
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEndpoint'
+        has_more:
+          type: boolean
