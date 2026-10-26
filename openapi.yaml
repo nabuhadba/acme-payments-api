@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Acme Payments API
-  version: 1.0.0
+  version: 2.0.0
   description: >-
     The payments API of Acme Payments, a fictional company. The host uses the
     reserved .example domain, so it never resolves. Request and response bodies
@@ -27,7 +27,11 @@ paths:
       operationId: listCharges
       tags: [Charges]
       summary: List charges
-      description: Charges, newest first.
+      description: >-
+        Deprecated: use `GET /v1/charges/search`. This endpoint stops working
+        on 2027-04-30.
+      deprecated: true
+      x-sunset: '2027-04-30'
       parameters:
         - name: customer
           in: query
@@ -50,9 +54,8 @@ paths:
       tags: [Charges]
       summary: Create a charge
       description: >-
-        Charges a card. Give the card as `payment_method`, or as `source` (a card
-        id or a card token). With neither, the customer's default payment method
-        is charged.
+        Charges a card. `payment_method` is required: the id of a card saved to
+        the customer. `source` was removed in 2.0.0.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -68,6 +71,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Charge'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/charges/search:
+    get:
+      operationId: searchCharges
+      tags: [Charges]
+      summary: Search charges
+      description: Replaces `GET /v1/charges`. Newest first.
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: For example `customer:"cus_Qh3kTq8sZ1" AND status:"failed"`.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+        - name: page
+          in: query
+          description: The `next_page` of the previous result.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A page of matching charges.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChargeSearchResult'
         default:
           $ref: '#/components/responses/Error'
   /v1/charges/{id}:
@@ -174,23 +205,6 @@ paths:
         default:
           $ref: '#/components/responses/Error'
   /v1/customers/{id}/cards:
-    get:
-      operationId: listCustomerCards
-      tags: [Cards]
-      summary: List a customer's cards
-      parameters:
-        - $ref: '#/components/parameters/CustomerId'
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/StartingAfter'
-      responses:
-        '200':
-          description: A page of cards.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CardList'
-        default:
-          $ref: '#/components/responses/Error'
     post:
       operationId: createCustomerCard
       tags: [Cards]
@@ -217,12 +231,42 @@ paths:
                 $ref: '#/components/schemas/Card'
         default:
           $ref: '#/components/responses/Error'
+  /v1/customers/{id}/payment_methods:
+    get:
+      operationId: listCustomerPaymentMethods
+      tags: [Cards]
+      summary: List a customer's payment methods
+      description: Replaces `GET /v1/customers/{id}/cards`, removed in 2.0.0.
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/StartingAfter'
+      responses:
+        '200':
+          description: A page of payment methods.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethodList'
+        default:
+          $ref: '#/components/responses/Error'
   /v1/payouts:
     post:
       operationId: createPayout
       tags: [Payouts]
       summary: Create a payout
-      description: Sends funds from the Acme balance to a bank account.
+      description: >-
+        Sends funds from the Acme balance to a bank account. Every payout
+        request must carry an `Idempotency-Key` header, so a retry never sends
+        the money twice.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: A key you choose for this payout, up to 255 characters.
+          schema:
+            type: string
+            maxLength: 255
       requestBody:
         required: true
         content:
@@ -418,7 +462,7 @@ components:
         type: string
     CreateChargeRequest:
       type: object
-      required: [amount, currency]
+      required: [amount, currency, payment_method]
       properties:
         amount:
           type: integer
@@ -432,9 +476,6 @@ components:
         payment_method:
           type: string
           description: The id of a card saved to the customer (`card_...`).
-        source:
-          type: string
-          description: A card id (`card_...`) or a single-use card token (`tok_...`).
         capture:
           type: boolean
           default: true
@@ -445,7 +486,7 @@ components:
           $ref: '#/components/schemas/Metadata'
     Charge:
       type: object
-      required: [id, object, amount, amount_refunded, currency, status, captured, failure_code, failure_message, created]
+      required: [id, object, amount, amount_refunded, currency, status, captured, failure_code, failure_reason, created]
       properties:
         id:
           type: string
@@ -473,7 +514,7 @@ components:
         failure_code:
           type: string
           nullable: true
-        failure_message:
+        failure_reason:
           type: string
           nullable: true
           description: Why the charge failed, in a sentence you can show the customer.
@@ -501,6 +542,22 @@ components:
             $ref: '#/components/schemas/Charge'
         has_more:
           type: boolean
+    ChargeSearchResult:
+      type: object
+      required: [object, data, has_more, next_page]
+      properties:
+        object:
+          type: string
+          enum: [search_result]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Charge'
+        has_more:
+          type: boolean
+        next_page:
+          type: string
+          nullable: true
     CreateRefundRequest:
       type: object
       required: [charge]
@@ -565,7 +622,7 @@ components:
         default_payment_method:
           type: string
           nullable: true
-          description: The card charged when a charge names none.
+          description: The customer's default payment method, shown in the dashboard. Every charge must name its own payment_method.
         metadata:
           $ref: '#/components/schemas/Metadata'
         created:
@@ -591,7 +648,35 @@ components:
           type: integer
         customer:
           type: string
-    CardList:
+    PaymentMethod:
+      type: object
+      required: [id, object, type, customer]
+      properties:
+        id:
+          type: string
+          example: card_1Pq7cJ2eZvKYlo2C
+        object:
+          type: string
+          enum: [payment_method]
+        type:
+          type: string
+          enum: [card]
+        card:
+          type: object
+          required: [brand, last4, exp_month, exp_year]
+          properties:
+            brand:
+              type: string
+              enum: [visa, mastercard, amex, discover, unknown]
+            last4:
+              type: string
+            exp_month:
+              type: integer
+            exp_year:
+              type: integer
+        customer:
+          type: string
+    PaymentMethodList:
       type: object
       required: [object, data, has_more]
       properties:
@@ -601,7 +686,7 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/Card'
+            $ref: '#/components/schemas/PaymentMethod'
         has_more:
           type: boolean
     CreatePayoutRequest:
